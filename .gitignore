@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+*.o
+*.d
+xcuserdata/
+*.xcworkspace/xcuserdata
+DerivedData/
+*.resolved
+.swp
+*.swp
