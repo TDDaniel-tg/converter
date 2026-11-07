@@ -127,6 +127,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func checkAccessibilityOnLaunch() {
+        let hasPrompted = UserDefaults.standard.bool(forKey: "has_prompted_accessibility")
+        if hasPrompted {
+            // User has already been prompted once — never disturb again automatically
+            return
+        }
+
+        // Mark as prompted immediately so it never shows again on future launches
+        UserDefaults.standard.set(true, forKey: "has_prompted_accessibility")
+
         if !AXIsProcessTrusted() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 let alert = NSAlert()
@@ -138,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 """
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "Открыть Системные настройки")
-                alert.addButton(withTitle: "Позже")
+                alert.addButton(withTitle: "Понятно (больше не показывать)")
                 if alert.runModal() == .alertFirstButtonReturn {
                     let promptOption = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
                     _ = AXIsProcessTrustedWithOptions(promptOption)

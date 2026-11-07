@@ -6,7 +6,11 @@ final class NotificationManager {
 
     static let shared = NotificationManager()
     private init() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        let hasRequested = UserDefaults.standard.bool(forKey: "has_requested_notifications")
+        if !hasRequested {
+            UserDefaults.standard.set(true, forKey: "has_requested_notifications")
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
     }
 
     func notify(result: ConversionResult, fileCount: Int) {
