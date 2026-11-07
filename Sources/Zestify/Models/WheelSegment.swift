@@ -1,43 +1,105 @@
 import AppKit
 
+// MARK: - File Category
+enum FileCategory {
+    case video
+    case audio
+    case image
+    case document
+    case generic
+
+    static func detect(from urls: [URL]) -> FileCategory {
+        guard let first = urls.first else { return .generic }
+        let ext = first.pathExtension.lowercased()
+
+        switch ext {
+        case "avi", "mp4", "mov", "mkv", "webm", "flv", "wmv", "m4v", "ts", "3gp", "vob":
+            return .video
+        case "wav", "mp3", "m4a", "flac", "ogg", "opus", "aiff", "aac", "wma", "alac":
+            return .audio
+        case "png", "jpg", "jpeg", "heic", "webp", "gif", "tiff", "bmp", "svg", "raw", "cr2", "nef":
+            return .image
+        case "pdf", "txt", "rtf", "doc", "docx", "pages":
+            return .document
+        default:
+            return .video // Default to video/general if unknown
+        }
+    }
+}
+
 // MARK: - Wheel Segment
 struct WheelSegment: Identifiable {
     let id = UUID()
     let label: String
-    let icon: String          // SF Symbol name
-    let nsColor: NSColor
-    let hoverNSColor: NSColor
+    let icon: String
     let action: SegmentAction
 
-    // MARK: - Segment Sets
+    // MARK: - Dynamic Segment Sets
+    static func segments(for mode: WheelMode, category: FileCategory = .video) -> [WheelSegment] {
+        if mode == .tools {
+            return toolSegments
+        }
 
-    static func segments(for mode: WheelMode) -> [WheelSegment] {
-        switch mode {
-        case .formats: return formatSegments
-        case .tools:   return toolSegments
+        switch category {
+        case .video:
+            return videoSegments
+        case .audio:
+            return audioSegments
+        case .image:
+            return imageSegments
+        case .document, .generic:
+            return genericSegments
         }
     }
 
-    // Format Wheel — 8 segments
-    static let formatSegments: [WheelSegment] = [
-        WheelSegment(label: "JPEG",  icon: "photo",             nsColor: .hex("#E8724A"), hoverNSColor: .hex("#FF8C66"), action: .convert(.jpeg)),
-        WheelSegment(label: "PNG",   icon: "photo.fill",        nsColor: .hex("#4A90D9"), hoverNSColor: .hex("#5AACE8"), action: .convert(.png)),
-        WheelSegment(label: "WebP",  icon: "globe",             nsColor: .hex("#5DBE7E"), hoverNSColor: .hex("#70D994"), action: .convert(.webp)),
-        WheelSegment(label: "HEIC",  icon: "applelogo",         nsColor: .hex("#9B6CF0"), hoverNSColor: .hex("#B589FF"), action: .convert(.heic)),
-        WheelSegment(label: "MP4",   icon: "film",              nsColor: .hex("#E8974A"), hoverNSColor: .hex("#FFB36A"), action: .convert(.mp4)),
-        WheelSegment(label: "MP3",   icon: "music.note",        nsColor: .hex("#E84A6E"), hoverNSColor: .hex("#FF6080"), action: .convert(.mp3)),
-        WheelSegment(label: "PDF",   icon: "doc.richtext",      nsColor: .hex("#C0392B"), hoverNSColor: .hex("#E74C3C"), action: .convert(.pdf)),
-        WheelSegment(label: "GIF",   icon: "play.rectangle",    nsColor: .hex("#F39C12"), hoverNSColor: .hex("#F5B839"), action: .convert(.gif)),
+    // Video Wheel (6 sectors)
+    static let videoSegments: [WheelSegment] = [
+        WheelSegment(label: "MP4",  icon: "film",           action: .convert(.mp4)),
+        WheelSegment(label: "MOV",  icon: "play.tv",        action: .convert(.mov)),
+        WheelSegment(label: "MKV",  icon: "video.fill",     action: .convert(.mkv)),
+        WheelSegment(label: "WEBM", icon: "globe",          action: .convert(.webm)),
+        WheelSegment(label: "GIF",  icon: "play.rectangle", action: .convert(.gif)),
+        WheelSegment(label: "MP3",  icon: "music.note",     action: .convert(.mp3)),
     ]
 
-    // Tools Wheel — 6 segments
+    // Audio Wheel (6 sectors - exact match with user photo)
+    static let audioSegments: [WheelSegment] = [
+        WheelSegment(label: "MP3",  icon: "music.note",        action: .convert(.mp3)),
+        WheelSegment(label: "M4A",  icon: "waveform",          action: .convert(.m4a)),
+        WheelSegment(label: "FLAC", icon: "hifispeaker",       action: .convert(.flac)),
+        WheelSegment(label: "OGG",  icon: "speaker.wave.2",    action: .convert(.ogg)),
+        WheelSegment(label: "OPUS", icon: "mic",               action: .convert(.opus)),
+        WheelSegment(label: "AIFF", icon: "waveform.path.ecg", action: .convert(.aiff)),
+    ]
+
+    // Image Wheel (6 sectors)
+    static let imageSegments: [WheelSegment] = [
+        WheelSegment(label: "PNG",  icon: "photo.fill",   action: .convert(.png)),
+        WheelSegment(label: "JPEG", icon: "photo",        action: .convert(.jpeg)),
+        WheelSegment(label: "WEBP", icon: "globe",        action: .convert(.webp)),
+        WheelSegment(label: "HEIC", icon: "applelogo",    action: .convert(.heic)),
+        WheelSegment(label: "PDF",  icon: "doc.richtext", action: .convert(.pdf)),
+        WheelSegment(label: "GIF",  icon: "sparkles",     action: .convert(.gif)),
+    ]
+
+    // Generic / Document Wheel
+    static let genericSegments: [WheelSegment] = [
+        WheelSegment(label: "PDF",  icon: "doc.fill",  action: .convert(.pdf)),
+        WheelSegment(label: "ZIP",  icon: "archivebox", action: .compress),
+        WheelSegment(label: "PNG",  icon: "photo",      action: .convert(.png)),
+        WheelSegment(label: "MP4",  icon: "film",       action: .convert(.mp4)),
+        WheelSegment(label: "MP3",  icon: "music.note", action: .convert(.mp3)),
+        WheelSegment(label: "TXT",  icon: "doc.text",   action: .convert(.txt)),
+    ]
+
+    // Tools Wheel (Option + Shift)
     static let toolSegments: [WheelSegment] = [
-        WheelSegment(label: "Compress",   icon: "rectangle.compress.vertical",           nsColor: .hex("#2C7BE5"), hoverNSColor: .hex("#4293FF"), action: .compress),
-        WheelSegment(label: "No Meta",    icon: "eye.slash",                             nsColor: .hex("#6C757D"), hoverNSColor: .hex("#8E9EAA"), action: .stripMetadata),
-        WheelSegment(label: "ZIP",        icon: "archivebox",                            nsColor: .hex("#17A589"), hoverNSColor: .hex("#1ABC9C"), action: .compress),
-        WheelSegment(label: "Resize 50%", icon: "arrow.up.left.and.arrow.down.right",    nsColor: .hex("#8E44AD"), hoverNSColor: .hex("#A65BBD"), action: .resize),
-        WheelSegment(label: "Trim",       icon: "scissors",                              nsColor: .hex("#D35400"), hoverNSColor: .hex("#E67E22"), action: .trim),
-        WheelSegment(label: "QR Read",    icon: "qrcode",                                nsColor: .hex("#1E8449"), hoverNSColor: .hex("#27AE60"), action: .readQR),
+        WheelSegment(label: "ZIP",        icon: "archivebox",                  action: .compress),
+        WheelSegment(label: "No Meta",    icon: "eye.slash",                   action: .stripMetadata),
+        WheelSegment(label: "Resize 50%", icon: "arrow.up.left.and.arrow.down.right", action: .resize),
+        WheelSegment(label: "QR Read",    icon: "qrcode",                      action: .readQR),
+        WheelSegment(label: "Trim",       icon: "scissors",                    action: .trim),
+        WheelSegment(label: "Compress",   icon: "rectangle.compress.vertical", action: .compress),
     ]
 }
 
@@ -53,21 +115,8 @@ enum SegmentAction {
 
 // MARK: - Target Format
 enum TargetFormat: String, CaseIterable {
-    case jpeg, png, webp, heic
-    case mp4, mov, gif
-    case mp3, m4a, wav, aiff
-    case pdf
-}
-
-// MARK: - NSColor from Hex
-extension NSColor {
-    static func hex(_ hex: String) -> NSColor {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let r = CGFloat((int >> 16) & 0xFF) / 255
-        let g = CGFloat((int >> 8)  & 0xFF) / 255
-        let b = CGFloat(int         & 0xFF) / 255
-        return NSColor(red: r, green: g, blue: b, alpha: 1.0)
-    }
+    case mp4, mov, mkv, webm
+    case mp3, m4a, wav, flac, ogg, opus, aiff
+    case jpeg, png, webp, heic, gif
+    case pdf, txt
 }

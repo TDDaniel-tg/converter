@@ -7,12 +7,20 @@ final class RadialWheelController {
     private var window: NSWindow?
     private var wheelView: RadialWheelView?
     private var dismissCallback: (() -> Void)?
+    private var currentScreenPoint: NSPoint = .zero
 
     // MARK: - Show Wheel
 
-    func show(mode: WheelMode, at screenPoint: NSPoint, onDismiss: @escaping () -> Void) {
+    func show(mode: WheelMode,
+              category: FileCategory = .video,
+              sourceFormat: String = "Zestify",
+              at screenPoint: NSPoint,
+              onDismiss: @escaping () -> Void) {
+
         self.dismissCallback = onDismiss
-        let vm = RadialWheelViewModel(mode: mode)
+        self.currentScreenPoint = screenPoint
+
+        let vm = RadialWheelViewModel(mode: mode, category: category, sourceFormat: sourceFormat)
 
         let size: CGFloat = 320
         let frame = NSRect(
@@ -36,8 +44,8 @@ final class RadialWheelController {
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let view = RadialWheelView(frame: NSRect(origin: .zero, size: frame.size), viewModel: vm)
-        view.onSelect = { [weak self] segment in
-            self?.handleSelection(segment)
+        view.onPerformDrop = { [weak self] segment, urls in
+            self?.handleDrop(segment: segment, urls: urls)
         }
         view.onDismiss = { [weak self] in
             self?.dismiss()
@@ -52,7 +60,7 @@ final class RadialWheelController {
         // Fade in
         win.alphaValue = 0
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.18
+            ctx.duration = 0.15
             win.animator().alphaValue = 1.0
         }
     }
@@ -62,7 +70,7 @@ final class RadialWheelController {
     func dismiss() {
         guard let win = window else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.14
+            ctx.duration = 0.12
             win.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             self?.window?.orderOut(nil)
@@ -80,33 +88,40 @@ final class RadialWheelController {
         let center = NSPoint(x: win.frame.width / 2, y: win.frame.height / 2)
         let dx = Double(local.x - center.x)
         let dy = Double(local.y - center.y)
+        let dist = sqrt(dx*dx + dy*dy)
         let angle = atan2(dy, dx)
-        wheelView?.viewModel.updateHoverAngle(angle)
+        wheelView?.viewModel.updateHoverAngle(angle, distance: dist)
         wheelView?.needsDisplay = true
     }
 
-    // MARK: - Selection
+    // MARK: - Drop Handling
 
-    private func handleSelection(_ segment: WheelSegment) {
+    private func handleDrop(segment: WheelSegment, urls: [URL]) {
+        let center = currentScreenPoint
         dismiss()
 
-        let pb = NSPasteboard(name: .drag)
-        var urls: [URL] = []
-        if let objects = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !objects.isEmpty {
-            urls = objects
-        } else if let filenames = pb.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String] {
-            urls = filenames.map { URL(fileURLWithPath: $0) }
-        }
+        // 1. Show Processing HUD
+        ProcessingHUDController.shared.show(targetFormat: segment.label, files: urls, at: center)
 
-        guard !urls.isEmpty else { return }
-
+        // 2. Perform Conversion
         ConversionEngine.shared.convert(urls: urls, to: segment) { result in
             DispatchQueue.main.async {
-                if Preferences.shared.playSound {
-                    NSSound(named: "Glass")?.play()
-                }
-                if Preferences.shared.showNotifications {
-                    NotificationManager.shared.notify(result: result, fileCount: urls.count)
+                switch result {
+                case .success(let outputUrls):
+                    ProcessingHUDController.shared.complete(outputFiles: outputUrls)
+                    if Preferences.shared.showNotifications {
+                        NotificationManager.shared.notify(result: .success(outputUrls: outputUrls), fileCount: urls.count)
+                    }
+
+                case .partial(let converted, let failed, let message):
+                    if converted > 0 {
+                        ProcessingHUDController.shared.complete(outputFiles: [])
+                    } else {
+                        ProcessingHUDController.shared.fail(message: message ?? "Не удалось конвертировать")
+                    }
+
+                case .failure(let error):
+                    ProcessingHUDController.shared.fail(message: error)
                 }
             }
         }

@@ -8,11 +8,6 @@ enum WheelMode {
 }
 
 // MARK: - Global Event Monitor
-/// Watches for modifier key + drag gestures globally and triggers the radial wheel.
-/// False positive protection:
-///   - Requires sustained modifier key hold before showing wheel (configurable in Preferences)
-///   - Checks pasteboard for actual file drag
-///   - Only activates when real drag session is detected
 final class GlobalEventMonitor {
 
     private var flagsMonitor: Any?
@@ -31,12 +26,12 @@ final class GlobalEventMonitor {
     }
 
     func start() {
-        // Monitor global flag changes (modifier keys)
+        // Global monitor for modifier keys
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.handleFlagsChanged(event)
         }
 
-        // Monitor global mouse drag
+        // Global monitor for mouse drag
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged]) { [weak self] event in
             self?.handleMouseDragged(event)
         }
@@ -68,13 +63,11 @@ final class GlobalEventMonitor {
 
         if shiftOption {
             debouncer.schedule { [weak self] in
-                guard self?.hasDraggedFiles() == true else { return }
-                self?.showWheel(mode: .tools, at: NSEvent.mouseLocation)
+                self?.triggerWheel(mode: .tools)
             }
         } else if shiftOnly {
             debouncer.schedule { [weak self] in
-                guard self?.hasDraggedFiles() == true else { return }
-                self?.showWheel(mode: .formats, at: NSEvent.mouseLocation)
+                self?.triggerWheel(mode: .formats)
             }
         } else {
             debouncer.cancel()
@@ -91,16 +84,27 @@ final class GlobalEventMonitor {
         radialWheelController.updateHover(at: lastMousePosition)
     }
 
-    // MARK: - Wheel Lifecycle
+    // MARK: - Wheel Trigger
 
-    private func showWheel(mode: WheelMode, at position: NSPoint) {
+    private func triggerWheel(mode: WheelMode) {
+        guard !isWheelVisible else { return }
+        let files = getDraggedFiles()
+        guard !files.isEmpty else { return }
+
+        let category = FileCategory.detect(from: files)
+        let sourceFormat = files.first?.pathExtension.uppercased() ?? "Zestify"
+
+        showWheel(mode: mode, category: category, sourceFormat: sourceFormat, at: NSEvent.mouseLocation)
+    }
+
+    private func showWheel(mode: WheelMode, category: FileCategory, sourceFormat: String, at position: NSPoint) {
         guard !isWheelVisible else { return }
         isWheelVisible = true
         currentMode = mode
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.radialWheelController.show(mode: mode, at: position) {
+            self.radialWheelController.show(mode: mode, category: category, sourceFormat: sourceFormat, at: position) {
                 self.isWheelVisible = false
             }
         }
@@ -114,14 +118,15 @@ final class GlobalEventMonitor {
         }
     }
 
-    // MARK: - Drag Detection (False Positive Protection)
-    /// Checks the dragging pasteboard to verify an actual file drag is happening.
-    private func hasDraggedFiles() -> Bool {
+    // MARK: - Drag Detection
+    private func getDraggedFiles() -> [URL] {
         let pb = NSPasteboard(name: .drag)
-        guard let types = pb.types else { return false }
-        return types.contains(.fileURL) ||
-               types.contains(NSPasteboard.PasteboardType("public.file-url")) ||
-               types.contains(NSPasteboard.PasteboardType("NSFilenamesPboardType")) ||
-               types.contains(NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"))
+        if let objects = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !objects.isEmpty {
+            return objects
+        }
+        if let files = pb.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String], !files.isEmpty {
+            return files.map { URL(fileURLWithPath: $0) }
+        }
+        return []
     }
 }

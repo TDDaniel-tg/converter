@@ -13,19 +13,19 @@ final class NotificationManager {
         let (title, body): (String, String)
 
         switch result {
-        case .success(let count):
-            title = "✅ Zestify — Done!"
-            body = count == 1
-                ? "1 file converted successfully."
-                : "\(count) files converted successfully."
+        case .success(let outputUrls):
+            title = "✅ Zestify — Готово!"
+            body = outputUrls.count == 1
+                ? "Файл успешно сконвертирован: \(outputUrls[0].lastPathComponent)"
+                : "\(outputUrls.count) файлов успешно сконвертировано."
 
         case .partial(let converted, let failed, let message):
-            title = "⚠️ Zestify — Partial"
-            let base = "\(converted) converted, \(failed) failed."
+            title = "⚠️ Zestify — Частично"
+            let base = "Сконвертировано: \(converted), ошибок: \(failed)."
             body = message.map { "\(base) \($0)" } ?? base
 
         case .failure(let error):
-            title = "❌ Zestify — Failed"
+            title = "❌ Zestify — Ошибка"
             body = error
         }
 
