@@ -160,7 +160,7 @@ final class GlobalEventMonitor {
         }
     }
 
-    // MARK: - Drag Detection
+    // MARK: - Drag & Selection Detection
     private func getDraggedFiles() -> [URL] {
         let pb = NSPasteboard(name: .drag)
         if let objects = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !objects.isEmpty {
@@ -169,6 +169,29 @@ final class GlobalEventMonitor {
         if let files = pb.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String], !files.isEmpty {
             return files.map { URL(fileURLWithPath: $0) }
         }
-        return []
+        // Fallback: check Finder selection
+        return getFinderSelectedFiles()
+    }
+
+    private func getFinderSelectedFiles() -> [URL] {
+        let scriptText = """
+        tell application "Finder"
+            set sel to selection as alias list
+            set posixList to ""
+            repeat with itemRef in sel
+                set posixList to posixList & POSIX path of itemRef & "\n"
+            end repeat
+            return posixList
+        end tell
+        """
+        guard let script = NSAppleScript(source: scriptText) else { return [] }
+        var errorInfo: NSDictionary?
+        let result = script.executeAndReturnError(&errorInfo)
+        guard let stringVal = result.stringValue, !stringVal.isEmpty else { return [] }
+        let paths = stringVal.split(separator: "\n").map(String.init)
+        return paths.compactMap { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed)
+        }
     }
 }

@@ -54,15 +54,12 @@ final class RadialWheelView: NSView {
 
     private var scaleAnim: CGFloat = 0.3
     private var animTimer: Timer?
-    private var visualEffect: NSVisualEffectView?
 
     init(frame: NSRect, viewModel: RadialWheelViewModel) {
         self.viewModel = viewModel
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-
-        setupFrostedBackdrop()
 
         // Register for file drags from Finder
         registerForDraggedTypes([
@@ -79,25 +76,6 @@ final class RadialWheelView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
-
-    // MARK: - Real Hardware Glass Backdrop (Blurring Desktop / Finder beneath)
-    private func setupFrostedBackdrop() {
-        let effect = NSVisualEffectView(frame: bounds)
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-
-        let maskLayer = CAShapeLayer()
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let maskRadius: CGFloat = 145
-        let circlePath = CGPath(ellipseIn: CGRect(x: center.x - maskRadius, y: center.y - maskRadius, width: maskRadius * 2, height: maskRadius * 2), transform: nil)
-        maskLayer.path = circlePath
-        effect.layer?.mask = maskLayer
-
-        addSubview(effect, positioned: .below, relativeTo: nil)
-        self.visualEffect = effect
-    }
 
     // MARK: - NSDraggingDestination Implementation
 
@@ -168,6 +146,9 @@ final class RadialWheelView: NSView {
             } else if let files = pb.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String] {
                 urls = files.map { URL(fileURLWithPath: $0) }
             }
+            if urls.isEmpty {
+                urls = getFinderSelectedFiles()
+            }
             if !urls.isEmpty {
                 onPerformDrop?(seg, urls)
                 return
@@ -176,12 +157,34 @@ final class RadialWheelView: NSView {
         onDismiss?()
     }
 
+    private func getFinderSelectedFiles() -> [URL] {
+        let scriptText = """
+        tell application "Finder"
+            set sel to selection as alias list
+            set posixList to ""
+            repeat with itemRef in sel
+                set posixList to posixList & POSIX path of itemRef & "\n"
+            end repeat
+            return posixList
+        end tell
+        """
+        guard let script = NSAppleScript(source: scriptText) else { return [] }
+        var errorInfo: NSDictionary?
+        let result = script.executeAndReturnError(&errorInfo)
+        guard let stringVal = result.stringValue, !stringVal.isEmpty else { return [] }
+        let paths = stringVal.split(separator: "\n").map(String.init)
+        return paths.compactMap { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed)
+        }
+    }
+
     // MARK: - Animate In
 
     private func animateIn() {
         scaleAnim = 0.4
         let start = Date()
-        let duration = 0.22
+        let duration = 0.20
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] t in
             guard let self else { t.invalidate(); return }
             let elapsed = Date().timeIntervalSince(start)
@@ -233,7 +236,7 @@ final class RadialWheelView: NSView {
         return path
     }
 
-    // MARK: - Drawing (Translucent Liquid Glass Aesthetic)
+    // MARK: - Drawing (Liquid Glass Aesthetic)
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -251,17 +254,17 @@ final class RadialWheelView: NSView {
         ctx.scaleBy(x: scaleAnim, y: scaleAnim)
         ctx.translateBy(x: -center.x, y: -center.y)
 
-        // 1. Outer Translucent Glass Halo Ring
+        // 1. Outer Translucent Glass Ring
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -4), blur: 16, color: NSColor.black.withAlphaComponent(0.20).cgColor)
         let outerCircle = CGPath(ellipseIn: CGRect(x: center.x - outerWheelRadius, y: center.y - outerWheelRadius,
                                                    width: outerWheelRadius * 2, height: outerWheelRadius * 2), transform: nil)
-        ctx.setFillColor(NSColor(white: 0.90, alpha: 0.20).cgColor)
+        ctx.setFillColor(NSColor(white: 0.88, alpha: 0.35).cgColor)
         ctx.addPath(outerCircle)
         ctx.fillPath()
 
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.45).cgColor)
-        ctx.setLineWidth(1.2)
+        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.50).cgColor)
+        ctx.setLineWidth(1.4)
         ctx.addPath(outerCircle)
         ctx.strokePath()
         ctx.restoreGState()
@@ -269,13 +272,12 @@ final class RadialWheelView: NSView {
         // 2. Translucent Glass Petals ("Стеклянные полупрозрачные плашки")
         let count = viewModel.segments.count
         let sliceAngle = (2 * CGFloat.pi) / CGFloat(count)
-        let angularGap: CGFloat = 0.055 // Clean gap between petals
+        let angularGap: CGFloat = 0.055
         let colorSpace = CGColorSpaceCreateDeviceRGB()
 
         for (i, segment) in viewModel.segments.enumerated() {
             let isHovered = (viewModel.hoveredIndex == i)
 
-            // Calculate start and end angle for slice (0 at top, going clockwise)
             let midAngle = (CGFloat.pi / 2) - CGFloat(i) * sliceAngle
             let startAngle = midAngle + (sliceAngle / 2) - (angularGap / 2)
             let endAngle = midAngle - (sliceAngle / 2) + (angularGap / 2)
@@ -283,7 +285,7 @@ final class RadialWheelView: NSView {
             let rOut = isHovered ? petalOuterRadius + 2 : petalOuterRadius
             let rIn = petalInnerRadius
 
-            let petalPath = roundedPetalPath(center: center, rIn: rIn, rOut: rOut, startAngle: startAngle, endAngle: endAngle, cornerRadius: 6.5)
+            let petalPath = roundedPetalPath(center: center, rIn: rIn, rOut: rOut, startAngle: startAngle, endAngle: endAngle, cornerRadius: 6.0)
 
             ctx.saveGState()
 
@@ -292,8 +294,8 @@ final class RadialWheelView: NSView {
                 ctx.setShadow(offset: CGSize(width: 0, height: -2), blur: 10, color: NSColor(red: 1.0, green: 0.35, blue: 0.0, alpha: 0.55).cgColor)
 
                 let orangeGradColors = [
-                    NSColor(red: 1.0, green: 0.46, blue: 0.08, alpha: 0.92).cgColor, // Top bright tangerine
-                    NSColor(red: 0.92, green: 0.26, blue: 0.02, alpha: 0.92).cgColor  // Bottom rich orange
+                    NSColor(red: 1.0, green: 0.46, blue: 0.08, alpha: 0.96).cgColor,
+                    NSColor(red: 0.92, green: 0.26, blue: 0.02, alpha: 0.96).cgColor
                 ] as CFArray
                 if let grad = CGGradient(colorsSpace: colorSpace, colors: orangeGradColors, locations: [0.0, 1.0]) {
                     ctx.addPath(petalPath)
@@ -306,18 +308,18 @@ final class RadialWheelView: NSView {
 
                 ctx.restoreGState()
                 ctx.saveGState()
-                ctx.setStrokeColor(NSColor(red: 1.0, green: 0.70, blue: 0.40, alpha: 0.90).cgColor)
-                ctx.setLineWidth(1.4)
+                ctx.setStrokeColor(NSColor(red: 1.0, green: 0.70, blue: 0.40, alpha: 0.95).cgColor)
+                ctx.setLineWidth(1.5)
                 ctx.addPath(petalPath)
                 ctx.strokePath()
             } else {
-                // Translucent Liquid Glass Petal ("стеклянная полупрозрачная плашка")
-                ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 4, color: NSColor.black.withAlphaComponent(0.10).cgColor)
+                // Translucent Liquid Glass Petal ("плашка стеклянная полупрозрачная")
+                ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: NSColor.black.withAlphaComponent(0.14).cgColor)
 
                 let glassGradColors = [
-                    NSColor(white: 1.0, alpha: 0.62).cgColor,  // Top gloss highlight
-                    NSColor(white: 0.96, alpha: 0.38).cgColor, // Mid translucent glass body
-                    NSColor(white: 0.90, alpha: 0.25).cgColor  // Bottom soft depth
+                    NSColor(white: 1.0, alpha: 0.82).cgColor,  // Top gloss highlight
+                    NSColor(white: 0.96, alpha: 0.62).cgColor, // Mid translucent glass body
+                    NSColor(white: 0.90, alpha: 0.48).cgColor  // Bottom soft depth
                 ] as CFArray
                 if let grad = CGGradient(colorsSpace: colorSpace, colors: glassGradColors, locations: [0.0, 0.45, 1.0]) {
                     ctx.addPath(petalPath)
@@ -330,9 +332,9 @@ final class RadialWheelView: NSView {
 
                 ctx.restoreGState()
                 ctx.saveGState()
-                // Crisp glass rim/border
-                ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.65).cgColor)
-                ctx.setLineWidth(1.1)
+                // Crisp specular glass rim/border
+                ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.85).cgColor)
+                ctx.setLineWidth(1.2)
                 ctx.addPath(petalPath)
                 ctx.strokePath()
             }
@@ -343,8 +345,8 @@ final class RadialWheelView: NSView {
             let labelX = center.x + labelRadius * cos(midAngle)
             let labelY = center.y + labelRadius * sin(midAngle)
 
-            let textColor = isHovered ? NSColor.white : NSColor(white: 0.08, alpha: 0.92)
-            let font = NSFont.systemFont(ofSize: 12.5, weight: .bold)
+            let textColor = isHovered ? NSColor.white : NSColor(white: 0.05, alpha: 0.92)
+            let font = NSFont.systemFont(ofSize: 13, weight: .bold)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: textColor
@@ -365,8 +367,8 @@ final class RadialWheelView: NSView {
         ctx.setShadow(offset: CGSize(width: 0, height: -2), blur: 8, color: NSColor.black.withAlphaComponent(0.15).cgColor)
 
         let hubGradColors = [
-            NSColor(white: 1.0, alpha: 0.68).cgColor,
-            NSColor(white: 0.94, alpha: 0.38).cgColor
+            NSColor(white: 1.0, alpha: 0.75).cgColor,
+            NSColor(white: 0.94, alpha: 0.45).cgColor
         ] as CFArray
         if let grad = CGGradient(colorsSpace: colorSpace, colors: hubGradColors, locations: [0.0, 1.0]) {
             ctx.addPath(hubPath)
@@ -379,8 +381,8 @@ final class RadialWheelView: NSView {
         ctx.restoreGState()
 
         ctx.saveGState()
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.80).cgColor)
-        ctx.setLineWidth(1.3)
+        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.85).cgColor)
+        ctx.setLineWidth(1.4)
         ctx.addPath(hubPath)
         ctx.strokePath()
         ctx.restoreGState()
@@ -394,8 +396,8 @@ final class RadialWheelView: NSView {
         }
 
         let centerAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13.5, weight: .bold),
-            .foregroundColor: NSColor(white: 0.08, alpha: 0.95)
+            .font: NSFont.systemFont(ofSize: 14, weight: .bold),
+            .foregroundColor: NSColor(white: 0.05, alpha: 0.95)
         ]
         let centerStr = NSAttributedString(string: centerText, attributes: centerAttrs)
         let centerSize = centerStr.size()
