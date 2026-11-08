@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController {
 
     private var delaySlider: NSSlider!
     private var delayLabel: NSTextField!
+    private var onlyFinderCheck: NSButton!
     private var saveNextRadio: NSButton!
     private var saveCustomRadio: NSButton!
     private var customPathLabel: NSTextField!
@@ -20,7 +21,7 @@ final class SettingsWindowController: NSWindowController {
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 550),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 580),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -84,6 +85,12 @@ final class SettingsWindowController: NSWindowController {
         delaySlider = NSSlider(value: Preferences.shared.debounceDelay, minValue: 0.15, maxValue: 0.80, target: self, action: #selector(sliderChanged(_:)))
         delaySlider.frame = NSRect(x: pad, y: y, width: 432, height: 20)
         contentView.addSubview(delaySlider)
+
+        y -= 24
+        onlyFinderCheck = NSButton(checkboxWithTitle: "Работать только в Finder (игнорировать в Fusion 360 и других программах)", target: self, action: #selector(onlyFinderToggled(_:)))
+        onlyFinderCheck.frame = NSRect(x: pad, y: y, width: 432, height: 18)
+        onlyFinderCheck.state = Preferences.shared.onlyInFinder ? .on : .off
+        contentView.addSubview(onlyFinderCheck)
 
         y -= 18
         let noteLabel = NSTextField(labelWithString: "Колесо появится только если удерживать клавишу во время перетаскивания.")
@@ -201,6 +208,10 @@ final class SettingsWindowController: NSWindowController {
         let val = (sender.doubleValue * 100).rounded() / 100
         Preferences.shared.debounceDelay = val
         delayLabel.stringValue = "\(Int(val * 1000)) мс"
+    }
+
+    @objc private func onlyFinderToggled(_ sender: NSButton) {
+        Preferences.shared.onlyInFinder = (sender.state == .on)
     }
 
     @objc private func saveLocationModeChanged() {

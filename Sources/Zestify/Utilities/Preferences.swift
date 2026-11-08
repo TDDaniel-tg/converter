@@ -9,6 +9,7 @@ final class Preferences {
 
     private enum Keys {
         static let debounceDelay = "zestify_debounce_delay"
+        static let onlyInFinder = "zestify_only_in_finder"
         static let saveMode = "zestify_save_mode"
         static let customSavePath = "zestify_custom_save_path"
         static let playSound = "zestify_play_sound"
@@ -18,7 +19,17 @@ final class Preferences {
 
     private init() {}
 
-    // MARK: - False Positive Protection Delay
+    // MARK: - False Positive Protection
+    var onlyInFinder: Bool {
+        get {
+            if defaults.object(forKey: Keys.onlyInFinder) == nil { return true }
+            return defaults.bool(forKey: Keys.onlyInFinder)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.onlyInFinder)
+        }
+    }
+
     var debounceDelay: TimeInterval {
         get {
             let val = defaults.double(forKey: Keys.debounceDelay)

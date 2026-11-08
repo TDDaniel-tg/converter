@@ -45,18 +45,54 @@ final class GlobalEventMonitor {
             if event.type == .leftMouseDragged { self?.handleMouseDragged(event) }
             return event
         }
+
+        // Watch for active app changes so we dismiss immediately if switching away from Finder
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(appDidActivate(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
     }
 
     func stop() {
         if let m = flagsMonitor { NSEvent.removeMonitor(m) }
         if let m = mouseMonitor { NSEvent.removeMonitor(m) }
         if let m = localMonitor { NSEvent.removeMonitor(m) }
+        NSWorkspace.shared.notificationCenter.removeObserver(self, name: NSWorkspace.didActivateApplicationNotification, object: nil)
         debouncer.cancel()
+    }
+
+    // MARK: - Active App Filter (Finder-Only Protection)
+
+    private func isFinderActive() -> Bool {
+        guard Preferences.shared.onlyInFinder else { return true }
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+        let bundleId = frontApp.bundleIdentifier ?? ""
+        return bundleId == "com.apple.finder" || bundleId == "com.zestify.app"
+    }
+
+    @objc private func appDidActivate(_ notification: Notification) {
+        if !isFinderActive() {
+            debouncer.cancel()
+            if isWheelVisible {
+                dismissWheel()
+            }
+        }
     }
 
     // MARK: - Handlers
 
     private func handleFlagsChanged(_ event: NSEvent) {
+        // Ignore modifier events completely if Finder is not active (e.g. Fusion 360, Blender, etc.)
+        guard isFinderActive() else {
+            debouncer.cancel()
+            if isWheelVisible {
+                dismissWheel()
+            }
+            return
+        }
+
         let flags = event.modifierFlags
         let shiftOnly = flags.contains(.shift) && !flags.contains(.option) && !flags.contains(.command)
         let shiftOption = flags.contains(.shift) && flags.contains(.option) && !flags.contains(.command)
@@ -81,6 +117,10 @@ final class GlobalEventMonitor {
         lastMousePosition = NSEvent.mouseLocation
 
         guard isWheelVisible else { return }
+        guard isFinderActive() else {
+            dismissWheel()
+            return
+        }
         radialWheelController.updateHover(at: lastMousePosition)
     }
 
@@ -88,6 +128,8 @@ final class GlobalEventMonitor {
 
     private func triggerWheel(mode: WheelMode) {
         guard !isWheelVisible else { return }
+        guard isFinderActive() else { return }
+
         let files = getDraggedFiles()
         guard !files.isEmpty else { return }
 
